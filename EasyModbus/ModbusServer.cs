@@ -122,7 +122,7 @@ namespace EasyModbus
                     }
                 }
             }
-            catch (Exception) { }
+            catch (Exception c ) { Console.WriteLine(c); }
             try
             {
                 server.BeginAcceptTcpClient(AcceptTcpClientCallback, null);
