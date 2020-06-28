@@ -69,11 +69,34 @@ namespace EasyModbus
         public ModbusClient()
         {
         }
-		
-		/// <summary>
-		/// Establish connection to Master device in case of Modbus TCP. Opens COM-Port in case of Modbus RTU
-		/// </summary>
-		public void Connect()
+
+        public ModbusClient(Socket handler)
+        {
+            this.handler = handler;
+
+
+            if (debug) StoreLogData.Instance.Store(" TCP-Socket, IP-Address: " + ipAddress + ", Port: " + port, System.DateTime.Now);
+            
+            tcpClient = new TcpClient();
+            tcpClient.Client = handler;
+
+            var remoteport = ((IPEndPoint)tcpClient.Client.RemoteEndPoint).Port;
+
+           
+            //  var result = tcpClient.ConnectAsync(ipAddress, port);
+
+
+            //tcpClient = new TcpClient(ipAddress, port);
+            stream = tcpClient.GetStream();
+            stream.ReadTimeout = connectTimeout;
+            connected = true;
+
+        }
+
+        /// <summary>
+        /// Establish connection to Master device in case of Modbus TCP. Opens COM-Port in case of Modbus RTU
+        /// </summary>
+        public void Connect()
 		{
 
             if (debug) StoreLogData.Instance.Store("Open TCP-Socket, IP-Address: " + ipAddress + ", Port: " + port, System.DateTime.Now);
@@ -607,52 +630,54 @@ namespace EasyModbus
         private int bytesToRead = 0;
         private int actualPositionToRead = 0;
         DateTime dateTimeLastRead;
-/*
-        private void DataReceivedHandler(object sender,
-                        SerialDataReceivedEventArgs e)
-        {
-            long ticksWait = TimeSpan.TicksPerMillisecond * 2000;
-            SerialPort sp = (SerialPort)sender;
-            
-            if (bytesToRead == 0 || sp.BytesToRead == 0)
-            {
-                actualPositionToRead = 0;
-                sp.DiscardInBuffer();
-                dataReceived = false;
-                receiveActive = false;
-                return;
-            }
+        private Socket handler;
 
-            if (actualPositionToRead == 0 && !dataReceived)
-                readBuffer = new byte[256];
+        /*
+private void DataReceivedHandler(object sender,
+ SerialDataReceivedEventArgs e)
+{
+long ticksWait = TimeSpan.TicksPerMillisecond * 2000;
+SerialPort sp = (SerialPort)sender;
 
-            //if ((DateTime.Now.Ticks - dateTimeLastRead.Ticks) > ticksWait)
-            //{
-            //    readBuffer = new byte[256];
-            //    actualPositionToRead = 0;
-            //}
-            int numberOfBytesInBuffer = sp.BytesToRead;
-            sp.Read(readBuffer, actualPositionToRead, ((numberOfBytesInBuffer + actualPositionToRead) > readBuffer.Length) ? 0 : numberOfBytesInBuffer);
-            actualPositionToRead = actualPositionToRead + numberOfBytesInBuffer;
-            //sp.DiscardInBuffer();
-            //if (DetectValidModbusFrame(readBuffer, (actualPositionToRead < readBuffer.Length) ? actualPositionToRead : readBuffer.Length) | bytesToRead <= actualPositionToRead)
-            if (actualPositionToRead >= bytesToRead)
-            {
+if (bytesToRead == 0 || sp.BytesToRead == 0)
+{
+actualPositionToRead = 0;
+sp.DiscardInBuffer();
+dataReceived = false;
+receiveActive = false;
+return;
+}
 
-                    dataReceived = true;
-                    bytesToRead = 0;
-                    actualPositionToRead = 0;
-                    if (debug) StoreLogData.Instance.Store("Received Serial-Data: " + BitConverter.ToString(readBuffer), System.DateTime.Now);
+if (actualPositionToRead == 0 && !dataReceived)
+readBuffer = new byte[256];
 
-            }
+//if ((DateTime.Now.Ticks - dateTimeLastRead.Ticks) > ticksWait)
+//{
+//    readBuffer = new byte[256];
+//    actualPositionToRead = 0;
+//}
+int numberOfBytesInBuffer = sp.BytesToRead;
+sp.Read(readBuffer, actualPositionToRead, ((numberOfBytesInBuffer + actualPositionToRead) > readBuffer.Length) ? 0 : numberOfBytesInBuffer);
+actualPositionToRead = actualPositionToRead + numberOfBytesInBuffer;
+//sp.DiscardInBuffer();
+//if (DetectValidModbusFrame(readBuffer, (actualPositionToRead < readBuffer.Length) ? actualPositionToRead : readBuffer.Length) | bytesToRead <= actualPositionToRead)
+if (actualPositionToRead >= bytesToRead)
+{
+
+dataReceived = true;
+bytesToRead = 0;
+actualPositionToRead = 0;
+if (debug) StoreLogData.Instance.Store("Received Serial-Data: " + BitConverter.ToString(readBuffer), System.DateTime.Now);
+
+}
 
 
-            //dateTimeLastRead = DateTime.Now;
-        }
- */       
+//dateTimeLastRead = DateTime.Now;
+}
+*/
 
-        
-    
+
+
 
         public static bool DetectValidModbusFrame(byte[] readBuffer, int length)
         {
@@ -946,7 +971,9 @@ namespace EasyModbus
                        
                     }
                     data = new Byte[256];
-                    int NumberOfBytes = stream.Read(data, 0, data.Length);
+
+             
+                int NumberOfBytes = stream.Read(data, 0, data.Length);
                     if (receiveDataChanged != null)
             		{
             			receiveData = new byte[NumberOfBytes];
@@ -954,6 +981,8 @@ namespace EasyModbus
                         if (debug) StoreLogData.Instance.Store("Receive ModbusTCP-Data: " + BitConverter.ToString(receiveData), System.DateTime.Now);
                         receiveDataChanged(this);
             		}
+              
+ 
                 
 			}
             if (data[7] == 0x83 & data[8] == 0x01)
@@ -991,6 +1020,116 @@ namespace EasyModbus
 			}			
     		return (response);			
 		}
+        public int ReportSlaveID()
+        {
+            int startingAddress=0, quantity = 0;
+
+
+            if (debug) StoreLogData.Instance.Store("FC17 (Report Slave ID from Master device)", System.DateTime.Now);
+            transactionIdentifierInternal++;
+            if (tcpClient == null)
+            {
+                if (debug) StoreLogData.Instance.Store("ConnectionException Throwed", System.DateTime.Now);
+                throw new EasyModbus.Exceptions.ConnectionException("connection error");
+            }
+
+            int[] response;
+            this.transactionIdentifier = BitConverter.GetBytes((uint)transactionIdentifierInternal);
+            this.protocolIdentifier = BitConverter.GetBytes((int)0x0000);
+            this.length = BitConverter.GetBytes((int)0x0002);
+            this.functionCode = 0x11;
+            this.startingAddress = BitConverter.GetBytes(startingAddress);
+            this.quantity = BitConverter.GetBytes(quantity);
+            Byte[] data = new byte[]{   this.transactionIdentifier[1],
+                            this.transactionIdentifier[0],
+                            this.protocolIdentifier[1],
+                            this.protocolIdentifier[0],
+                            this.length[1],
+                            this.length[0],
+                            0,//this.unitIdentifier,
+                            this.functionCode,
+                            //this.startingAddress[1],
+                            //this.startingAddress[0],
+                            //this.quantity[1],
+                            //this.quantity[0],
+                            //this.crc[0],
+                            //this.crc[1]
+            };
+            //crc = BitConverter.GetBytes(calculateCRC(data, 6, 6));
+            //data[12] = crc[0];
+            //data[13] = crc[1];
+            if (tcpClient.Client.Connected)
+            {
+                stream.Write(data, 0, data.Length );
+                if (debug)
+                {
+                    byte[] debugData = new byte[data.Length ];
+                    Array.Copy(data, 0, debugData, 0, data.Length );
+                    if (debug) StoreLogData.Instance.Store("Send ModbusTCP-Data: " + BitConverter.ToString(debugData), System.DateTime.Now);
+                }
+                if (sendDataChanged != null)
+                {
+                    sendData = new byte[data.Length ];
+                    Array.Copy(data, 0, sendData, 0, data.Length);
+                    sendDataChanged(this);
+
+                }
+                data = new Byte[256];
+                try
+                {
+                    int NumberOfBytes = stream.Read(data, 0, data.Length);
+                    if (receiveDataChanged != null)
+                    {
+                        receiveData = new byte[NumberOfBytes];
+                        Array.Copy(data, 0, receiveData, 0, NumberOfBytes);
+                        if (debug) StoreLogData.Instance.Store("Receive ModbusTCP-Data: " + BitConverter.ToString(receiveData), System.DateTime.Now);
+                        receiveDataChanged(this);
+                    }
+                }
+                catch(Exception c)
+                {
+                    Console.WriteLine("Error at 10091");
+                }
+               
+
+            }
+            if (data[7] == 0x83 & data[8] == 0x01)
+            {
+                if (debug) StoreLogData.Instance.Store("FunctionCodeNotSupportedException Throwed", System.DateTime.Now);
+                throw new EasyModbus.Exceptions.FunctionCodeNotSupportedException("Function code not supported by master");
+            }
+            if (data[7] == 0x83 & data[8] == 0x02)
+            {
+                if (debug) StoreLogData.Instance.Store("StartingAddressInvalidException Throwed", System.DateTime.Now);
+                throw new EasyModbus.Exceptions.StartingAddressInvalidException("Starting address invalid or starting address + quantity invalid");
+            }
+            if (data[7] == 0x83 & data[8] == 0x03)
+            {
+                if (debug) StoreLogData.Instance.Store("QuantityInvalidException Throwed", System.DateTime.Now);
+                throw new EasyModbus.Exceptions.QuantityInvalidException("quantity invalid");
+            }
+            if (data[7] == 0x83 & data[8] == 0x04)
+            {
+                if (debug) StoreLogData.Instance.Store("ModbusException Throwed", System.DateTime.Now);
+                throw new EasyModbus.Exceptions.ModbusException("error reading");
+            }
+            response = new int[quantity];
+            //for (int i = 0; i < quantity; i++)
+            //{
+            //    byte lowByte;
+            //    byte highByte;
+            //    highByte = data[9 + i * 2];
+            //    lowByte = data[9 + i * 2 + 1];
+
+            //    data[9 + i * 2] = lowByte;
+            //    data[9 + i * 2 + 1] = highByte;
+
+            //    response[i] = BitConverter.ToInt16(data, (9 + i * 2));
+            //}
+            unitIdentifier= data[6];
+      
+            return unitIdentifier;
+        }
 
         /// <summary>
         /// Read Input Registers from Master device (FC4).
